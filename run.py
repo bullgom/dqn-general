@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore")
+
 import torch
 from replay_memory import ReplayMemory
 from parameter import HyperParameters, EnvParameters, ETCParameters
@@ -9,40 +12,51 @@ import gym
 import torchvision.transforms as T
 from PIL import Image
 from datetime import datetime
+import os
+
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    optim_type = torch.optim.RMSprop
+    optim_type = torch.optim.Adam
     
     hyp_p = HyperParameters(
         target_update_interval=50,
-        replay_memory_size=100000,
+        replay_memory_size=1000000,
         epsilon_start=0.9,
-        epsilon_end=0.05,
-        epsilon_decay=200,
-        batch_size=128,
-        lr=0.001,
+        epsilon_end=0.1,
+        epsilon_decay=100000,
+        batch_size=32,
+        lr=0.0001,
         optimizer_type=optim_type,
-        gamma=0.995,
+        gamma=0.99,
         num_episodes=3000,
         policy_update_step_interval=500,
-        image_size=100,
+        image_size=None,
         max_steps=5000,
+        frame_skips=3
     )
     
     etc_p = ETCParameters(
         device=device,
         save_interval=500,
         save_path="checkpoints/",
-        plot_length=5000
+        plot_length=5000,
     )
     
-    transform = T.Compose([
-        T.ToPILImage(), 
-        T.Resize((hyp_p.image_size, hyp_p.image_size), interpolation=Image.CUBIC), 
-        T.Grayscale(),
-        T.ToTensor(),
-    ])
+    if hyp_p.image_size:
+        transform = T.Compose([
+            T.ToPILImage(), 
+            T.Resize((hyp_p.image_size, hyp_p.image_size), interpolation=Image.CUBIC), 
+            T.Grayscale(),
+            T.ToTensor(),
+        ])
+    else:
+        transform = T.Compose([
+            T.ToPILImage(), 
+            T.Grayscale(),
+            T.ToTensor(),
+        ])
+
     
     display = False
     initial_checkpoint = ""
@@ -70,7 +84,7 @@ if __name__ == "__main__":
 
         mem = ReplayMemory(hyp_p.replay_memory_size)
         
-        agent = Agent(hyp_p, env_p, etc_p, initial_checkpoint)
+        agent = Agent(hyp_p, env_p, etc_p, initial_checkpoint, use_multi_gpu=True)
         teacher = Teacher(hyp_p, etc_p, agent, mem)
         plotter = ProgressPlot(plot_length=etc_p.plot_length, cut=True)
         
@@ -83,16 +97,24 @@ if __name__ == "__main__":
         for episode_i in range(hyp_p.num_episodes):
             
             env.reset()
-            image, _, _, _ = env.step(env.action_space.sample())
+            action = env.action_space.sample()
+            image, _, _, _ = env.step(action)
             state = transform(image).unsqueeze(0)
             accumulated_reward = 0
                         
             for steps in range(hyp_p.max_steps):
-                action = agent.select_action(state)
+                if steps % hyp_p.frame_skips == 0:
+                    action = agent.select_action(state)
                 agent.step()
+
                 next_image, reward, done, info = env.step(action.item())
+                # Clip reward
+                if reward > 0:
+                    reward = 1
+                if reward < 0:
+                    reward = -1
                 next_state = transform(next_image).unsqueeze(0)
-                            
+                
                 reward_tensor = torch.tensor([reward], device=etc_p.device)
                 mem.push(state, action, next_state, reward_tensor)
                 state = next_state
@@ -115,7 +137,13 @@ if __name__ == "__main__":
                     mean = sum(lasts)/len(lasts)
                     mean_record.append(mean)                
                     
-                    plotter.plot(reward_record, mean_record, loss_record)
+                    plotter.save(
+                        os.path.join(etc_p.save_path, env_name),
+                        f"result.png", 
+                        reward_record, 
+                        mean_record, 
+                        loss_record
+                    )
                     break
             
             if episode_i % hyp_p.target_update_interval == 0:

@@ -1,6 +1,7 @@
 from architecture import DQN
 from parameter import HyperParameters, ETCParameters, EnvParameters
 import torch
+import torch.nn as nn
 import random
 import numpy as np
 
@@ -12,15 +13,24 @@ class Agent:
         hyp_p: HyperParameters, 
         env_p: EnvParameters,
         etc_p: ETCParameters,
-        initial_checkpoint: str = ""
+        initial_checkpoint: str = "",
+        use_multi_gpu: bool = False
     ) -> None:
         
         self.hyp_p = hyp_p
         self.env_p = env_p
         self.etc_p = etc_p
         
-        self.policy_net = DQN(hyp_p, env_p, etc_p).to(etc_p.device)
-        self.target_net = DQN(hyp_p, env_p, etc_p).to(etc_p.device)
+        policy_net = DQN(hyp_p, env_p, etc_p)
+        target_net = DQN(hyp_p, env_p, etc_p)
+
+        self.use_multi_gpu = use_multi_gpu
+        if use_multi_gpu:
+            policy_net = nn.DataParallel(policy_net)
+            target_net = nn.DataParallel(target_net)
+
+        self.policy_net = policy_net.to(etc_p.device)
+        self.target_net = target_net.to(etc_p.device)
         self.target_net.eval()
         self.steps_done: int = 0
         

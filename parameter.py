@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import torch
-
+from typing import Optional
 
 @dataclass
 class HyperParameters:
@@ -21,8 +21,10 @@ class HyperParameters:
     num_episodes: int
     policy_update_step_interval : int
     
-    image_size : int
+    image_size : Optional[int]
     max_steps : int
+
+    frame_skips : int
 
 
 @dataclass

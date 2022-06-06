@@ -53,11 +53,13 @@ class ProgressPlot:
     
     def save(
         self, 
+        path: str,
         name: str,
         rewards: list[float], 
         mean_values: list[float], 
         losses: list[float]
     ) -> None:
+        os.makedirs(path, exist_ok=True)
         self.rpe_axes.clear()
         self.rpe_axes.set_title("Reward Per Episode")
         self.rpe_axes.plot(rewards, color="black", linewidth=1)
@@ -69,4 +71,7 @@ class ProgressPlot:
         self.loss_axes.set_title("Loss Per Episode")
         self.loss_axes.plot(losses, color="black",linewidth=1)
         self.loss_axes.grid()
-        plt.savefig(name)
+        x = os.path.join(path, name)
+        if os.path.isfile(x):
+            os.remove(x)
+        plt.savefig(x)
